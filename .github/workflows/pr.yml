@@ -17,19 +17,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [win64, linux64, linuxarm64]
+        target: [win64, winarm64, linux64, linuxarm64]
         variant: [nonfree, nonfree 8.0, nonfree 7.1]
         quickbuild: [1]
-        include:
-          - target: win64
-            variant: gpl
-            quickbuild: ""
-          - target: linux64
-            variant: gpl
-            quickbuild: ""
-          - target: linuxarm64
-            variant: gpl
-            quickbuild: ""
     steps:
       - name: Free Disk-Space
         run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
