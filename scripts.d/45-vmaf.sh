@@ -1,7 +1,7 @@
 #!/bin/bash
 
-SCRIPT_REPO="https://github.com/Netflix/vmaf.git"
-SCRIPT_COMMIT="6b75f37728b2eb70c11508ece93afaacc6572b45"
+SCRIPT_REPO="https://github.com/vaibhavk2/vmaf.git"
+SCRIPT_COMMIT="ab474560a769b3da3883c311e196d0e3d97bbc83"
 NV_CODEC_TAG="876af32a202d0de83bd1d36fe74ee0f7fcf86b0d"
 
 ffbuild_enabled() {
@@ -57,7 +57,7 @@ ffbuild_dockerbuild() {
             sed -i '/^\[binaries\]/a cuda = '"'nvcc'"'' /cross.meson
 
             export NVCC_APPEND_FLAGS="-ccbin=/usr/bin/gcc-12"
-            
+
 	    NV_VER=13.1.0
 	    NV_ARCH=$(uname -m | grep -q "x86" && echo "x86_64" || echo "sbsa")
 
