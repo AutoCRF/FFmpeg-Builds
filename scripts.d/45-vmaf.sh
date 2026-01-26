@@ -24,7 +24,7 @@ ffbuild_dockerbuild() {
         -Denable_tests=false
         -Denable_docs=false
         -Denable_avx512=true
-        -Denable_asm=true
+        -Denable_asm=false
         -Denable_float=true
     )
 
