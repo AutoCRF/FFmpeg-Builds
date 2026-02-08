@@ -14,8 +14,7 @@ package_variant() {
     cp "$IN"/bin/* "$OUT"/bin
 
     mkdir -p "$OUT"/lib
-    # cp "$IN"/bin/*.lib "$OUT"/lib
-    cp "$IN"/lib/* "$OUT"/lib
+    cp -a "$IN"/lib/* "$OUT"/lib
 
     sed -i \
         -e 's|^prefix=.*|prefix=${pcfiledir}/../..|' \
