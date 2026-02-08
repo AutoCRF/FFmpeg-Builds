@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
             exit 1
         fi
 
-        cd "$REPACK_DIR"
+        cd "$REPACK_DIR/bin"
 
         INAME="$(echo ffmpeg-*)"
         TAGNAME="$(cut -d- -f2 <<<"$INAME")"

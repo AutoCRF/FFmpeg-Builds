@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         target: [win64, winarm64, linux64, linuxarm64]
-        variant: [nvcc-legacy-shared 8.0, nvcc-shared 8.0, nvcc-legacy 8.0, nvcc 8.0]
+        variant: [nvcc-legacy 8.0, nvcc 8.0]
         quickbuild: [1]
     steps:
       - name: Free Disk-Space
