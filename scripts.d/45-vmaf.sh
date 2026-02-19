@@ -1,7 +1,7 @@
 #!/bin/bash
 
 SCRIPT_REPO="https://github.com/lusoris/vmaf.git"
-SCRIPT_COMMIT="07f1504a41b65ea4a91883e05a8035aa3510078a"
+SCRIPT_COMMIT="5002039beaf8079b082b39fa553b84b54ea8622b"
 
 ffbuild_enabled() {
     return 0
@@ -21,7 +21,7 @@ ffbuild_dockerbuild() {
     # Kill build of unused and broken tools
     echo > libvmaf/tools/meson.build
 
-   git apply /patches/0001-fix-install.patch
+    # git apply /patches/0001-fix-install.patch
 
     mkdir build && cd build
 
