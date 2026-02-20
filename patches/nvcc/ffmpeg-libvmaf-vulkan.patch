@@ -22,7 +22,7 @@ index da93aaf..fdc2105 100755
  vidstabtransform_filter_deps="libvidstab"
  libvmaf_filter_deps="libvmaf"
  libvmaf_cuda_filter_deps="libvmaf libvmaf_cuda ffnvcodec"
-+libvmaf_vulkan_filter_deps="libvmaf libvmaf_vulkan"
++libvmaf_vulkan_filter_deps="libvmaf libvmaf_vulkan vulkan"
  zmq_filter_deps="libzmq"
  zoompan_filter_deps="swscale"
  zscale_filter_deps="libzimg const_nan"
@@ -43,7 +43,7 @@ index 6ecacc3..752c558 100644
  OBJS-$(CONFIG_LIBPLACEBO_FILTER)             += vf_libplacebo.o vulkan.o vulkan_filter.o
  OBJS-$(CONFIG_LIBVMAF_FILTER)                += vf_libvmaf.o framesync.o
  OBJS-$(CONFIG_LIBVMAF_CUDA_FILTER)           += vf_libvmaf.o framesync.o
-+OBJS-$(CONFIG_LIBVMAF_VULKAN_FILTER)        += vf_libvmaf.o framesync.o
++OBJS-$(CONFIG_LIBVMAF_VULKAN_FILTER)         += vf_libvmaf.o framesync.o
  OBJS-$(CONFIG_LIMITDIFF_FILTER)              += vf_limitdiff.o framesync.o
  OBJS-$(CONFIG_LIMITER_FILTER)                += vf_limiter.o
  OBJS-$(CONFIG_LOOP_FILTER)                   += f_loop.o
@@ -63,18 +63,20 @@ diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
 index 3ab67d3..7b67cc0 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
-@@ -46,6 +46,10 @@
+@@ -46,6 +46,11 @@
  #include "libavutil/hwcontext_cuda_internal.h"
  #endif
  
 +#if CONFIG_LIBVMAF_VULKAN_FILTER
 +#include <libvmaf/libvmaf_vulkan.h>
++#include "libavutil/hwcontext.h"
++#include "libavutil/hwcontext_vulkan.h"
 +#endif
 +
  typedef struct LIBVMAFContext {
      const AVClass *class;
      FFFrameSync fs;
-@@ -64,6 +68,9 @@ typedef struct LIBVMAFContext {
+@@ -64,6 +69,9 @@ typedef struct LIBVMAFContext {
  #if CONFIG_LIBVMAF_CUDA_FILTER
      VmafCudaState *cu_state;
  #endif
@@ -84,23 +86,113 @@ index 3ab67d3..7b67cc0 100644
  } LIBVMAFContext;
  
  #define OFFSET(x) offsetof(LIBVMAFContext, x)
-@@ -826,3 +833,63 @@ const FFFilter ff_vf_libvmaf_cuda = {
+@@ -826,3 +834,133 @@ const FFFilter ff_vf_libvmaf_cuda = {
      .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
  };
  #endif
 +
 +#if CONFIG_LIBVMAF_VULKAN_FILTER
++
++static int do_vmaf_vulkan(FFFrameSync *fs)
++{
++    AVFilterContext *ctx = fs->parent;
++    LIBVMAFContext *s = ctx->priv;
++    VmafPicture pic_ref, pic_dist;
++    AVFrame *ref, *dist;
++    AVFrame *ref_sw = NULL, *dist_sw = NULL;
++    int ret;
++
++    ret = ff_framesync_dualinput_get(fs, &dist, &ref);
++    if (ret < 0)
++        return ret;
++    if (!ref)
++        return ff_filter_frame(ctx->outputs[0], dist);
++
++    // Download Vulkan frames to CPU for processing.
++    // libvmaf's Vulkan extractors will re-upload to GPU internally, but
++    // we share the same VkDevice so there's no duplicate device overhead.
++    // True zero-copy (VkImage -> SSBO) is a future optimization.
++    ref_sw = av_frame_alloc();
++    dist_sw = av_frame_alloc();
++    if (!ref_sw || !dist_sw) {
++        ret = AVERROR(ENOMEM);
++        goto fail;
++    }
++
++    ret = av_hwframe_transfer_data(ref_sw, ref, 0);
++    if (ret < 0) {
++        av_log(ctx, AV_LOG_ERROR, "Failed to download ref frame: %s\n",
++               av_err2str(ret));
++        goto fail;
++    }
++    ret = av_hwframe_transfer_data(dist_sw, dist, 0);
++    if (ret < 0) {
++        av_log(ctx, AV_LOG_ERROR, "Failed to download dist frame: %s\n",
++               av_err2str(ret));
++        goto fail;
++    }
++
++    ret = copy_picture_data(ref_sw, &pic_ref, s);
++    if (ret)
++        goto fail;
++    ret = copy_picture_data(dist_sw, &pic_dist, s);
++    if (ret)
++        goto fail;
++
++    ret = vmaf_read_pictures(s->vmaf, &pic_ref, &pic_dist, s->frame_cnt++);
++    if (ret) {
++        av_log(ctx, AV_LOG_ERROR,
++               "problem during vmaf_read_pictures: %s\n", vmaf_strerror(ret));
++        goto fail;
++    }
++
++    ret = 0;
++fail:
++    av_frame_free(&ref_sw);
++    av_frame_free(&dist_sw);
++    if (ret < 0)
++        return ret;
++    return ff_filter_frame(ctx->outputs[0], dist);
++}
++
 +static av_cold int init_vulkan(AVFilterContext *ctx)
 +{
 +    LIBVMAFContext *s = ctx->priv;
++    s->fs.on_event = do_vmaf_vulkan;
++    return 0;
++}
++
++static int config_props_vulkan(AVFilterLink *outlink)
++{
++    AVFilterContext *ctx = outlink->dst;
++    LIBVMAFContext *s = ctx->priv;
++    AVFilterLink *inlink = ctx->inputs[0];
++    AVHWFramesContext *frames_ctx;
++    AVVulkanDeviceContext *vk_hwctx;
 +    int err;
 +
-+    VmafVulkanConfiguration vk_cfg = { 0 };
++    if (!inlink->hw_frames_ctx) {
++        av_log(ctx, AV_LOG_ERROR,
++               "No Vulkan hw_frames_ctx on input. Use -hwaccel vulkan.\n");
++        return AVERROR(EINVAL);
++    }
++
++    frames_ctx = (AVHWFramesContext *)inlink->hw_frames_ctx->data;
++    vk_hwctx = frames_ctx->device_ctx->hwctx;
++
++    // Share FFmpeg's Vulkan device with libvmaf — no duplicate instance/device
++    VmafVulkanConfiguration vk_cfg = {
++        .vk_instance        = vk_hwctx->inst,
++        .vk_physical_device = vk_hwctx->phys_dev,
++        .vk_device          = vk_hwctx->act_dev,
++        .queue_family       = vk_hwctx->queue_family_comp_index,
++        .queue_index        = 0,
++    };
 +
 +    err = vmaf_vulkan_state_init(&s->vk_state, vk_cfg);
 +    if (err) {
 +        av_log(ctx, AV_LOG_ERROR,
-+               "problem during vmaf_vulkan_state_init: %d\n", err);
++               "vmaf_vulkan_state_init failed: %d\n", err);
 +        return AVERROR_EXTERNAL;
 +    }
 +
@@ -117,34 +209,34 @@ index 3ab67d3..7b67cc0 100644
 +    err = vmaf_vulkan_import_state(s->vmaf, s->vk_state);
 +    if (err) {
 +        av_log(ctx, AV_LOG_ERROR,
-+               "problem during vmaf_vulkan_import_state: %d\n", err);
++               "vmaf_vulkan_import_state failed: %d\n", err);
 +        return AVERROR_EXTERNAL;
 +    }
 +
-+    err = parse_models(ctx);
-+    if (err)
-+        return err;
-+
-+    err = parse_features(ctx);
-+    if (err)
-+        return err;
-+
-+    s->fs.on_event = do_vmaf;
-+    return 0;
++    return config_props(outlink);
 +}
 +
++static const AVFilterPad libvmaf_outputs_vulkan[] = {
++    {
++        .name         = "default",
++        .type         = AVMEDIA_TYPE_VIDEO,
++        .config_props = config_props_vulkan,
++    },
++};
++
 +const FFFilter ff_vf_libvmaf_vulkan = {
-+    .p.name        = "libvmaf_vulkan",
-+    .p.description = NULL_IF_CONFIG_SMALL("Calculate the VMAF between two video "
-+                                          "streams using Vulkan GPU acceleration."),
-+    .p.priv_class  = &libvmaf_class,
-+    .preinit       = libvmaf_framesync_preinit,
-+    .init          = init_vulkan,
-+    .uninit        = uninit,
-+    .activate      = activate,
-+    .priv_size     = sizeof(LIBVMAFContext),
++    .p.name         = "libvmaf_vulkan",
++    .p.description  = NULL_IF_CONFIG_SMALL("Calculate the VMAF between two video "
++                                           "streams using Vulkan GPU acceleration."),
++    .p.priv_class   = &libvmaf_class,
++    .preinit        = libvmaf_framesync_preinit,
++    .init           = init_vulkan,
++    .uninit         = uninit,
++    .activate       = activate,
++    .priv_size      = sizeof(LIBVMAFContext),
 +    FILTER_INPUTS(libvmaf_inputs),
-+    FILTER_OUTPUTS(libvmaf_outputs),
-+    FILTER_PIXFMTS_ARRAY(pix_fmts),
++    FILTER_OUTPUTS(libvmaf_outputs_vulkan),
++    FILTER_SINGLE_PIXFMT(AV_PIX_FMT_VULKAN),
++    .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
 +};
 +#endif
