@@ -1,5 +1,5 @@
 diff --git a/configure b/configure
-index c931b86..b36f429 100755
+index 732de59..ab6d1f8 100755
 --- a/configure
 +++ b/configure
 @@ -290,6 +290,7 @@ External library support:
@@ -26,7 +26,7 @@ index c931b86..b36f429 100755
  zmq_filter_deps="libzmq"
  zoompan_filter_deps="swscale"
  zscale_filter_deps="libzimg const_nan"
-@@ -7167,6 +7170,8 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
+@@ -7163,6 +7166,8 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
  enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid.stab/libvidstab.h vsMotionDetectInit
  enabled libvmaf           && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvmaf.h vmaf_init
  enabled libvmaf           && check_pkg_config libvmaf_cuda "libvmaf >= 2.0.0" libvmaf_cuda.h vmaf_cuda_state_init
@@ -60,10 +60,10 @@ index cca4ce0..c03601f 100644
  extern const FFFilter ff_vf_limiter;
  extern const FFFilter ff_vf_loop;
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index 10d5b7f..c98ca06 100644
+index 10d5b7f..5e142de 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
-@@ -46,6 +46,13 @@
+@@ -46,6 +46,14 @@
  #include "libavutil/hwcontext_cuda_internal.h"
  #endif
  
@@ -71,78 +71,47 @@ index 10d5b7f..c98ca06 100644
 +#include <libvmaf/libvmaf_vulkan.h>
 +#include "libavutil/hwcontext.h"
 +#include "libavutil/hwcontext_vulkan.h"
-+#include "libswscale/swscale.h"
++#include "libavutil/vulkan_functions.h"
++#include "libavutil/vulkan_loader.h"
 +#endif
 +
  typedef struct LIBVMAFContext {
      const AVClass *class;
      FFFrameSync fs;
-@@ -64,6 +71,10 @@ typedef struct LIBVMAFContext {
+@@ -64,6 +72,18 @@ typedef struct LIBVMAFContext {
  #if CONFIG_LIBVMAF_CUDA_FILTER
      VmafCudaState *cu_state;
  #endif
 +#if CONFIG_LIBVMAF_VULKAN_FILTER
 +    VmafVulkanState *vk_state;
-+    enum AVPixelFormat sw_planar_fmt;
++    FFVulkanFunctions vkfn;
++    VkDevice vk_device;
++    VkQueue vk_queue;
++    VkBuffer vmaf_ref_buf;
++    VkBuffer vmaf_dist_buf;
++    VkCommandPool copy_pool;
++    VkCommandBuffer copy_cmd;
++    VkFence copy_fence;
++    VkImageAspectFlags y_plane_aspect;
 +#endif
  } LIBVMAFContext;
  
  #define OFFSET(x) offsetof(LIBVMAFContext, x)
-@@ -826,3 +837,238 @@ const FFFilter ff_vf_libvmaf_cuda = {
+@@ -826,3 +846,380 @@ const FFFilter ff_vf_libvmaf_cuda = {
      .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
  };
  #endif
 +
 +#if CONFIG_LIBVMAF_VULKAN_FILTER
 +
-+/**
-+ * Map semi-planar pixel formats (NV12, P010, etc.) to the equivalent
-+ * fully-planar format that libvmaf / pix_fmt_map() understands.
-+ */
-+static enum AVPixelFormat vmaf_planar_fmt(enum AVPixelFormat fmt)
-+{
-+    switch (fmt) {
-+    case AV_PIX_FMT_NV12:   return AV_PIX_FMT_YUV420P;
-+    case AV_PIX_FMT_P010LE: return AV_PIX_FMT_YUV420P10LE;
-+    case AV_PIX_FMT_P012LE: return AV_PIX_FMT_YUV420P12LE;
-+    case AV_PIX_FMT_P016LE: return AV_PIX_FMT_YUV420P16LE;
-+    default:                return fmt;
-+    }
-+}
-+
-+static AVFrame *convert_to_planar(AVFrame *src, enum AVPixelFormat dst_fmt)
-+{
-+    AVFrame *dst = av_frame_alloc();
-+    struct SwsContext *sws;
-+    if (!dst)
-+        return NULL;
-+    dst->format = dst_fmt;
-+    dst->width  = src->width;
-+    dst->height = src->height;
-+    if (av_frame_get_buffer(dst, 0) < 0) {
-+        av_frame_free(&dst);
-+        return NULL;
-+    }
-+    sws = sws_getContext(src->width, src->height, src->format,
-+                         dst->width, dst->height, dst_fmt,
-+                         SWS_POINT, NULL, NULL, NULL);
-+    if (!sws) {
-+        av_frame_free(&dst);
-+        return NULL;
-+    }
-+    sws_scale(sws, (const uint8_t *const *)src->data, src->linesize,
-+              0, src->height, dst->data, dst->linesize);
-+    sws_freeContext(sws);
-+    return dst;
-+}
-+
 +static int do_vmaf_vulkan(FFFrameSync *fs)
 +{
 +    AVFilterContext *ctx = fs->parent;
 +    LIBVMAFContext *s = ctx->priv;
-+    VmafPicture pic_ref, pic_dist;
++    FFVulkanFunctions *vk = &s->vkfn;
 +    AVFrame *ref, *dist;
-+    AVFrame *ref_sw = NULL, *dist_sw = NULL;
++    AVVkFrame *ref_vk, *dist_vk;
++    VkResult vr;
 +    int ret;
 +
 +    ret = ff_framesync_dualinput_get(fs, &dist, &ref);
@@ -151,68 +120,149 @@ index 10d5b7f..c98ca06 100644
 +    if (ctx->is_disabled || !ref)
 +        return ff_filter_frame(ctx->outputs[0], dist);
 +
-+    // Download Vulkan frames to CPU for processing.
-+    // libvmaf's Vulkan extractors will re-upload to GPU internally, but
-+    // we share the same VkDevice so there's no duplicate device overhead.
-+    // True zero-copy (VkImage -> SSBO) is a future optimization.
-+    ref_sw = av_frame_alloc();
-+    dist_sw = av_frame_alloc();
-+    if (!ref_sw || !dist_sw) {
-+        ret = AVERROR(ENOMEM);
-+        goto fail;
-+    }
++    ref_vk  = (AVVkFrame *)ref->data[0];
++    dist_vk = (AVVkFrame *)dist->data[0];
 +
-+    ret = av_hwframe_transfer_data(ref_sw, ref, 0);
-+    if (ret < 0) {
-+        av_log(ctx, AV_LOG_ERROR, "Failed to download ref frame: %s\n",
-+               av_err2str(ret));
-+        goto fail;
-+    }
-+    ret = av_hwframe_transfer_data(dist_sw, dist, 0);
-+    if (ret < 0) {
-+        av_log(ctx, AV_LOG_ERROR, "Failed to download dist frame: %s\n",
-+               av_err2str(ret));
-+        goto fail;
-+    }
++    // Determine correct image aspect for the Y (luma) plane.
++    // For multi-planar VkImages (e.g. G8_B8_R8_3PLANE_420_UNORM when
++    // hwupload creates a single VkImage), we must use PLANE_0_BIT.
++    // For separate per-plane VkImages (R8_UNORM each), use COLOR_BIT.
++    VkImageAspectFlags y_aspect = s->y_plane_aspect;
 +
-+    // Convert semi-planar (NV12/P010) to planar (YUV420P) for VMAF
-+    if (ref_sw->format != s->sw_planar_fmt) {
-+        AVFrame *tmp;
-+        tmp = convert_to_planar(ref_sw, s->sw_planar_fmt);
-+        if (!tmp) { ret = AVERROR(ENOMEM); goto fail; }
-+        av_frame_free(&ref_sw);
-+        ref_sw = tmp;
-+        tmp = convert_to_planar(dist_sw, s->sw_planar_fmt);
-+        if (!tmp) { ret = AVERROR(ENOMEM); goto fail; }
-+        av_frame_free(&dist_sw);
-+        dist_sw = tmp;
-+    }
-+
-+    ret = copy_picture_data(ref_sw, &pic_ref, s->bpc);
++    // Wait for previous libvmaf compute batch to finish reading from the
++    // shared buffers before we overwrite them with new frame data.
++    // Without this, the vkCmdCopyImageToBuffer below can race with the
++    // previous frame's compute shaders on the same queue.
++    ret = vmaf_vulkan_wait_compute(s->vmaf);
 +    if (ret) {
-+        av_log(s, AV_LOG_ERROR, "problem during vmaf_picture_alloc.\n");
-+        goto fail;
-+    }
-+    ret = copy_picture_data(dist_sw, &pic_dist, s->bpc);
-+    if (ret) {
-+        av_log(s, AV_LOG_ERROR, "problem during vmaf_picture_alloc.\n");
-+        vmaf_picture_unref(&pic_ref);
-+        goto fail;
++        av_log(ctx, AV_LOG_ERROR,
++               "vmaf_vulkan_wait_compute failed: %d\n", ret);
++        return AVERROR_EXTERNAL;
 +    }
 +
-+    ret = vmaf_read_pictures(s->vmaf, &pic_ref, &pic_dist, s->frame_cnt++);
++    // Record Y-plane copies: VkImage -> libvmaf shared VkBuffers
++    VkCommandBufferBeginInfo begin_info = {
++        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
++        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
++    };
++    vk->BeginCommandBuffer(s->copy_cmd, &begin_info);
++
++    // Transition both Y-plane images to TRANSFER_SRC_OPTIMAL
++    VkImageMemoryBarrier img_barriers[2] = {
++        {
++            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
++            .srcAccessMask = ref_vk->access[0],
++            .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
++            .oldLayout     = ref_vk->layout[0],
++            .newLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++            .image = ref_vk->img[0],
++            .subresourceRange = {
++                y_aspect, 0, 1, 0, 1
++            },
++        },
++        {
++            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
++            .srcAccessMask = dist_vk->access[0],
++            .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
++            .oldLayout     = dist_vk->layout[0],
++            .newLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++            .image = dist_vk->img[0],
++            .subresourceRange = {
++                y_aspect, 0, 1, 0, 1
++            },
++        },
++    };
++    vk->CmdPipelineBarrier(s->copy_cmd,
++                         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
++                         VK_PIPELINE_STAGE_TRANSFER_BIT,
++                         0, 0, NULL, 0, NULL, 2, img_barriers);
++
++    // Copy Y plane from each VkImage into libvmaf's device-local SSBO
++    VkBufferImageCopy region = {
++        .bufferOffset      = 0,
++        .bufferRowLength   = 0,   // tightly packed
++        .bufferImageHeight = 0,
++        .imageSubresource  = {
++            y_aspect, 0, 0, 1
++        },
++        .imageOffset = { 0, 0, 0 },
++        .imageExtent = { ref->width, ref->height, 1 },
++    };
++
++    vk->CmdCopyImageToBuffer(s->copy_cmd, ref_vk->img[0],
++                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++                           s->vmaf_ref_buf, 1, &region);
++    vk->CmdCopyImageToBuffer(s->copy_cmd, dist_vk->img[0],
++                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++                           s->vmaf_dist_buf, 1, &region);
++
++    // Make buffer writes visible to subsequent compute-shader reads
++    VkMemoryBarrier mem_barrier = {
++        .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
++        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
++        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
++    };
++    vk->CmdPipelineBarrier(s->copy_cmd,
++                         VK_PIPELINE_STAGE_TRANSFER_BIT,
++                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                         0, 1, &mem_barrier, 0, NULL, 0, NULL);
++
++    vk->EndCommandBuffer(s->copy_cmd);
++
++    // Submit: wait on both input timeline semaphores, signal dist's next value
++    VkSemaphore wait_sems[2]          = { ref_vk->sem[0], dist_vk->sem[0] };
++    uint64_t    wait_values[2]        = { ref_vk->sem_value[0],
++                                          dist_vk->sem_value[0] };
++    VkPipelineStageFlags wait_dst[2]  = { VK_PIPELINE_STAGE_TRANSFER_BIT,
++                                          VK_PIPELINE_STAGE_TRANSFER_BIT };
++    uint64_t    new_dist_val          = dist_vk->sem_value[0] + 1;
++    VkSemaphore signal_sems[1]        = { dist_vk->sem[0] };
++    uint64_t    signal_values[1]      = { new_dist_val };
++
++    VkTimelineSemaphoreSubmitInfo ts = {
++        .sType                     = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
++        .waitSemaphoreValueCount   = 2,
++        .pWaitSemaphoreValues      = wait_values,
++        .signalSemaphoreValueCount = 1,
++        .pSignalSemaphoreValues    = signal_values,
++    };
++    VkSubmitInfo submit = {
++        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
++        .pNext                = &ts,
++        .waitSemaphoreCount   = 2,
++        .pWaitSemaphores      = wait_sems,
++        .pWaitDstStageMask    = wait_dst,
++        .commandBufferCount   = 1,
++        .pCommandBuffers      = &s->copy_cmd,
++        .signalSemaphoreCount = 1,
++        .pSignalSemaphores    = signal_sems,
++    };
++
++    vk->ResetFences(s->vk_device, 1, &s->copy_fence);
++    vr = vk->QueueSubmit(s->vk_queue, 1, &submit, s->copy_fence);
++    if (vr != VK_SUCCESS) {
++        av_log(ctx, AV_LOG_ERROR, "vkQueueSubmit (Y copy) failed: %d\n", vr);
++        return AVERROR_EXTERNAL;
++    }
++    vk->WaitForFences(s->vk_device, 1, &s->copy_fence, VK_TRUE, UINT64_MAX);
++
++    // Update dist frame tracking for downstream consumers
++    dist_vk->layout[0]    = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
++    dist_vk->access[0]    = 0;
++    dist_vk->sem_value[0] = new_dist_val;
++
++    // Zero-copy submit: extractors read directly from shared buffers
++    ret = vmaf_read_pictures_vulkan(s->vmaf, s->frame_cnt++);
 +    if (ret) {
-+        av_log(s, AV_LOG_ERROR, "problem during vmaf_read_pictures.\n");
-+        ret = AVERROR(EINVAL);
-+        goto fail;
++        av_log(ctx, AV_LOG_ERROR,
++               "vmaf_read_pictures_vulkan failed: %d\n", ret);
++        return AVERROR_EXTERNAL;
 +    }
 +
-+    ret = 0;
-+fail:
-+    av_frame_free(&ref_sw);
-+    av_frame_free(&dist_sw);
-+    if (ret < 0)
-+        return ret;
 +    return ff_filter_frame(ctx->outputs[0], dist);
 +}
 +
@@ -223,9 +273,27 @@ index 10d5b7f..c98ca06 100644
 +    return 0;
 +}
 +
++static av_cold void uninit_vulkan(AVFilterContext *ctx)
++{
++    LIBVMAFContext *s = ctx->priv;
++    FFVulkanFunctions *vk = &s->vkfn;
++    if (s->vk_device && vk->DestroyFence) {
++        if (s->copy_fence) {
++            vk->DestroyFence(s->vk_device, s->copy_fence, NULL);
++            s->copy_fence = VK_NULL_HANDLE;
++        }
++        if (s->copy_pool) {
++            vk->DestroyCommandPool(s->vk_device, s->copy_pool, NULL);
++            s->copy_pool = VK_NULL_HANDLE;
++        }
++    }
++    uninit(ctx);
++}
++
 +static int config_props_vulkan(AVFilterLink *outlink)
 +{
 +    int err;
++    VkResult vr;
 +    AVFilterContext *ctx = outlink->src;
 +    LIBVMAFContext *s = ctx->priv;
 +    AVFilterLink *inlink = ctx->inputs[0];
@@ -245,7 +313,26 @@ index 10d5b7f..c98ca06 100644
 +    vk_hwctx = frames_ctx->device_ctx->hwctx;
 +    desc = av_pix_fmt_desc_get(frames_ctx->sw_format);
 +    s->bpc = desc->comp[0].depth;
-+    s->sw_planar_fmt = vmaf_planar_fmt(frames_ctx->sw_format);
++
++    // Detect whether FFmpeg hwframes uses multi-planar VkImages or separate
++    // per-plane images.  For multi-planar images (single VkImage containing
++    // all planes), the Y plane must be addressed with PLANE_0_BIT, not
++    // COLOR_BIT.
++    {
++        AVVulkanFramesContext *vk_frames = frames_ctx->hwctx;
++        int nb_planes = av_pix_fmt_count_planes(frames_ctx->sw_format);
++        if (nb_planes > 1 && vk_frames->format[1] == VK_FORMAT_UNDEFINED) {
++            // Single multi-planar VkImage (e.g. G8_B8_R8_3PLANE_420_UNORM)
++            s->y_plane_aspect = VK_IMAGE_ASPECT_PLANE_0_BIT;
++        } else {
++            // Separate per-plane images, or single-plane format
++            s->y_plane_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
++        }
++        av_log(ctx, AV_LOG_VERBOSE,
++               "Vulkan Y-plane aspect: 0x%x (nb_planes=%d, fmt[0]=0x%x, fmt[1]=0x%x)\n",
++               s->y_plane_aspect, nb_planes,
++               vk_frames->format[0], vk_frames->format[1]);
++    }
 +
 +    // Find a compute-capable queue family
 +    for (int i = 0; i < vk_hwctx->nb_qf; i++) {
@@ -259,7 +346,7 @@ index 10d5b7f..c98ca06 100644
 +        return AVERROR(EINVAL);
 +    }
 +
-+    // Share FFmpeg's Vulkan device with libvmaf — no duplicate instance/device
++    // Share FFmpeg's Vulkan device with libvmaf
 +    VmafVulkanConfiguration vk_cfg = {
 +        .vk_instance        = vk_hwctx->inst,
 +        .vk_physical_device = vk_hwctx->phys_dev,
@@ -292,6 +379,70 @@ index 10d5b7f..c98ca06 100644
 +        return AVERROR_EXTERNAL;
 +    }
 +
++    // Zero-copy: allocate shared device-local buffers inside libvmaf,
++    // then export VkBuffer handles so we can vkCmdCopyImageToBuffer into them
++    err = vmaf_vulkan_init_frame_buffers(s->vmaf, inlink->w, inlink->h, s->bpc);
++    if (err) {
++        av_log(ctx, AV_LOG_ERROR,
++               "vmaf_vulkan_init_frame_buffers failed: %d\n", err);
++        return AVERROR_EXTERNAL;
++    }
++
++    VkBuffer ref_buf, dist_buf;
++    err = vmaf_vulkan_get_frame_buffers(s->vmaf, &ref_buf, &dist_buf,
++                                        NULL, NULL);
++    if (err) {
++        av_log(ctx, AV_LOG_ERROR,
++               "vmaf_vulkan_get_frame_buffers failed: %d\n", err);
++        return AVERROR_EXTERNAL;
++    }
++    s->vmaf_ref_buf  = ref_buf;
++    s->vmaf_dist_buf = dist_buf;
++    s->vk_device     = vk_hwctx->act_dev;
++
++    // Load Vulkan function pointers from FFmpeg's dynamic dispatch
++    err = ff_vk_load_functions(frames_ctx->device_ctx, &s->vkfn,
++                               0, 1, 1);
++    if (err < 0) {
++        av_log(ctx, AV_LOG_ERROR, "Failed to load Vulkan functions\n");
++        return err;
++    }
++    FFVulkanFunctions *vk = &s->vkfn;
++    vk->GetDeviceQueue(s->vk_device, queue_family, 0, &s->vk_queue);
++
++    // Command pool + buffer for the per-frame Y-plane copy
++    VkCommandPoolCreateInfo pool_info = {
++        .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
++        .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
++        .queueFamilyIndex = queue_family,
++    };
++    vr = vk->CreateCommandPool(s->vk_device, &pool_info, NULL, &s->copy_pool);
++    if (vr != VK_SUCCESS) {
++        av_log(ctx, AV_LOG_ERROR, "vkCreateCommandPool failed: %d\n", vr);
++        return AVERROR_EXTERNAL;
++    }
++
++    VkCommandBufferAllocateInfo cmd_alloc = {
++        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
++        .commandPool        = s->copy_pool,
++        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
++        .commandBufferCount = 1,
++    };
++    vr = vk->AllocateCommandBuffers(s->vk_device, &cmd_alloc, &s->copy_cmd);
++    if (vr != VK_SUCCESS) {
++        av_log(ctx, AV_LOG_ERROR, "vkAllocateCommandBuffers failed: %d\n", vr);
++        return AVERROR_EXTERNAL;
++    }
++
++    VkFenceCreateInfo fence_info = {
++        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
++    };
++    vr = vk->CreateFence(s->vk_device, &fence_info, NULL, &s->copy_fence);
++    if (vr != VK_SUCCESS) {
++        av_log(ctx, AV_LOG_ERROR, "vkCreateFence failed: %d\n", vr);
++        return AVERROR_EXTERNAL;
++    }
++
 +    err = parse_models(ctx);
 +    if (err)
 +        return err;
@@ -318,7 +469,7 @@ index 10d5b7f..c98ca06 100644
 +    .p.priv_class   = &libvmaf_class,
 +    .preinit        = libvmaf_framesync_preinit,
 +    .init           = init_vulkan,
-+    .uninit         = uninit,
++    .uninit         = uninit_vulkan,
 +    .activate       = activate,
 +    .priv_size      = sizeof(LIBVMAFContext),
 +    FILTER_INPUTS(libvmaf_inputs),
@@ -327,3 +478,4 @@ index 10d5b7f..c98ca06 100644
 +    .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
 +};
 +#endif
+\ No newline at end of file
