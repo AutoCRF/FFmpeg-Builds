@@ -60,7 +60,7 @@ index cca4ce0..c03601f 100644
  extern const FFFilter ff_vf_limiter;
  extern const FFFilter ff_vf_loop;
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index 10d5b7f..5e142de 100644
+index 10d5b7f..ed2a209 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
 @@ -46,6 +46,14 @@
@@ -78,7 +78,7 @@ index 10d5b7f..5e142de 100644
  typedef struct LIBVMAFContext {
      const AVClass *class;
      FFFrameSync fs;
-@@ -64,6 +72,18 @@ typedef struct LIBVMAFContext {
+@@ -64,6 +72,19 @@ typedef struct LIBVMAFContext {
  #if CONFIG_LIBVMAF_CUDA_FILTER
      VmafCudaState *cu_state;
  #endif
@@ -93,11 +93,12 @@ index 10d5b7f..5e142de 100644
 +    VkCommandBuffer copy_cmd;
 +    VkFence copy_fence;
 +    VkImageAspectFlags y_plane_aspect;
++    unsigned pixel_shift;
 +#endif
  } LIBVMAFContext;
  
  #define OFFSET(x) offsetof(LIBVMAFContext, x)
-@@ -826,3 +846,380 @@ const FFFilter ff_vf_libvmaf_cuda = {
+@@ -826,3 +847,382 @@ const FFFilter ff_vf_libvmaf_cuda = {
      .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
  };
  #endif
@@ -313,6 +314,7 @@ index 10d5b7f..5e142de 100644
 +    vk_hwctx = frames_ctx->device_ctx->hwctx;
 +    desc = av_pix_fmt_desc_get(frames_ctx->sw_format);
 +    s->bpc = desc->comp[0].depth;
++    s->pixel_shift = desc->comp[0].shift;
 +
 +    // Detect whether FFmpeg hwframes uses multi-planar VkImages or separate
 +    // per-plane images.  For multi-planar images (single VkImage containing
@@ -381,7 +383,8 @@ index 10d5b7f..5e142de 100644
 +
 +    // Zero-copy: allocate shared device-local buffers inside libvmaf,
 +    // then export VkBuffer handles so we can vkCmdCopyImageToBuffer into them
-+    err = vmaf_vulkan_init_frame_buffers(s->vmaf, inlink->w, inlink->h, s->bpc);
++    err = vmaf_vulkan_init_frame_buffers(s->vmaf, inlink->w, inlink->h, s->bpc,
++                                         s->pixel_shift);
 +    if (err) {
 +        av_log(ctx, AV_LOG_ERROR,
 +               "vmaf_vulkan_init_frame_buffers failed: %d\n", err);
