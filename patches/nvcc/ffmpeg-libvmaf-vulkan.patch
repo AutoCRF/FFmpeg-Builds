@@ -1,5 +1,5 @@
 diff --git a/configure b/configure
-index 732de59..ab6d1f8 100755
+index c931b86..b36f429 100755
 --- a/configure
 +++ b/configure
 @@ -290,6 +290,7 @@ External library support:
@@ -26,7 +26,7 @@ index 732de59..ab6d1f8 100755
  zmq_filter_deps="libzmq"
  zoompan_filter_deps="swscale"
  zscale_filter_deps="libzimg const_nan"
-@@ -7163,6 +7166,8 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
+@@ -7167,6 +7170,8 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
  enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid.stab/libvidstab.h vsMotionDetectInit
  enabled libvmaf           && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvmaf.h vmaf_init
  enabled libvmaf           && check_pkg_config libvmaf_cuda "libvmaf >= 2.0.0" libvmaf_cuda.h vmaf_cuda_state_init
@@ -60,10 +60,10 @@ index cca4ce0..c03601f 100644
  extern const FFFilter ff_vf_limiter;
  extern const FFFilter ff_vf_loop;
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index 10d5b7f..ed2a209 100644
+index 10d5b7f..259d534 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
-@@ -46,6 +46,14 @@
+@@ -46,6 +46,15 @@
  #include "libavutil/hwcontext_cuda_internal.h"
  #endif
  
@@ -79,7 +79,7 @@ index 10d5b7f..ed2a209 100644
  typedef struct LIBVMAFContext {
      const AVClass *class;
      FFFrameSync fs;
-@@ -64,6 +72,20 @@ typedef struct LIBVMAFContext {
+@@ -64,6 +73,19 @@ typedef struct LIBVMAFContext {
  #if CONFIG_LIBVMAF_CUDA_FILTER
      VmafCudaState *cu_state;
  #endif
@@ -99,10 +99,12 @@ index 10d5b7f..ed2a209 100644
  } LIBVMAFContext;
  
  #define OFFSET(x) offsetof(LIBVMAFContext, x)
-@@ -826,3 +848,414 @@ const FFFilter ff_vf_libvmaf_cuda = {
+@@ -826,3 +848,438 @@ const FFFilter ff_vf_libvmaf_cuda = {
      .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
  };
  #endif
++ };
++ #endif
 +
 +#if CONFIG_LIBVMAF_VULKAN_FILTER
 +
