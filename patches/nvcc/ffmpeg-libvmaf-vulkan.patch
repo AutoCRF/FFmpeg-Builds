@@ -60,7 +60,7 @@ index cca4ce0..c03601f 100644
  extern const FFFilter ff_vf_limiter;
  extern const FFFilter ff_vf_loop;
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index 10d5b7f..259d534 100644
+index 10d5b7f..1b1fdee 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
 @@ -46,6 +46,15 @@
@@ -99,12 +99,10 @@ index 10d5b7f..259d534 100644
  } LIBVMAFContext;
  
  #define OFFSET(x) offsetof(LIBVMAFContext, x)
-@@ -826,3 +848,438 @@ const FFFilter ff_vf_libvmaf_cuda = {
+@@ -826,3 +848,436 @@ const FFFilter ff_vf_libvmaf_cuda = {
      .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
  };
  #endif
-+ };
-+ #endif
 +
 +#if CONFIG_LIBVMAF_VULKAN_FILTER
 +
