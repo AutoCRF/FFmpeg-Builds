@@ -11,6 +11,7 @@ ffbuild_depends() {
     echo base
     echo ffnvcodec
     echo onevpl
+    echo level-zero
 }
 
 ffbuild_dockerstage() {

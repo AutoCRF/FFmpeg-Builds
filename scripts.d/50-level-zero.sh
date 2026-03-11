@@ -37,10 +37,3 @@ ffbuild_dockerbuild() {
 
 }
 
-ffbuild_configure() {
-    echo --enable-levelzero
-}
-
-ffbuild_unconfigure() {
-    echo --disable-levelzero
-}
