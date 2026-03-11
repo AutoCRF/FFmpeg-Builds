@@ -72,7 +72,7 @@ ffbuild_depends() {
     echo xvid
     echo zimg
     echo zvbi
-
+echo level-zero
     echo rpath
 }
 

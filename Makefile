@@ -5,7 +5,9 @@ HOST_ARCH := $(shell uname -m)
 
 # Choose the correct platform string for the scripts
 ifeq ($(HOST_ARCH),arm64)
-	PLATFORM := linuxamd64   # ARM‑based machine
+	PLATFORM := linuxarm64   # ARM‑based machine (Apple Silicon, etc.)
+else ifeq ($(HOST_ARCH),aarch64)
+	PLATFORM := linuxarm64   # ARM‑based machine (Linux aarch64)
 else
 	PLATFORM := linux64      # Non‑ARM machine (x86_64, etc.)
 endif
@@ -14,4 +16,3 @@ endif
 default:
 	@GITHUB_REPOSITORY=blackbeard-rocks/ffmpeg ./makeimage.sh $(PLATFORM) nvcc 8.0
 	@GITHUB_REPOSITORY=blackbeard-rocks/ffmpeg ./build.sh $(PLATFORM) nvcc 8.0
-
