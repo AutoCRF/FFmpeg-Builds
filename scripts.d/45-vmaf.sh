@@ -1,7 +1,7 @@
 #!/bin/bash
 
 SCRIPT_REPO="https://github.com/lusoris/vmaf.git"
-SCRIPT_COMMIT="056e865309a004e766b44d2539cbd6e4252d9919"
+SCRIPT_COMMIT="26e9192aee4bf6b34f867ced558158994674739e"
 
 ffbuild_enabled() {
     return 0
@@ -10,7 +10,7 @@ ffbuild_enabled() {
 ffbuild_depends() {
     echo base
     echo ffnvcodec
-    echo vulkan
+    echo onevpl
 }
 
 ffbuild_dockerstage() {
@@ -34,7 +34,7 @@ ffbuild_dockerbuild() {
         -Denable_docs=false
         -Denable_avx512=true
         -Denable_float=true
-        -Denable_vulkan=true
+        -Denable_sycl=true
     )
 
     if [[ $TARGET == win* || $TARGET == linux* ]]; then
@@ -47,11 +47,34 @@ ffbuild_dockerbuild() {
     fi
 
     source /patches/nvcc.sh
+echo 1
 
-    meson "${myconf[@]}" ../libvmaf ../libvmaf/build || cat meson-logs/meson-log.txt
+#export CXXFLAGS="-fsycl -fpc-host-compiler=x86_64-ffbuild-linux-gnu-g++"
+#export LDFLAGS="-fsycl -fpc-host-compiler=x86_64-ffbuild-linux-gnu-g++"
+
+export SYCL_PROGRAM_COMPILE_OPTION="${SYCL_PROGRAM_COMPILE_OPTIONS} -fcp-host-compiler=${CC}"
+
+
+export LDFLAGS="$LDFLAGS /usr/lib/x86_64-linux-gnu/libze_loader.so"
+
+meson "${myconf[@]}" ../libvmaf ../libvmaf/build || cat ../libvmaf/build/meson-logs/meson-log.txt
     ninja -j"$(nproc)" -C ../libvmaf/build
     DESTDIR="$FFBUILD_DESTDIR" ninja install -C ../libvmaf/build
-    sed -i 's/Libs.private:/Libs.private: -lstdc++/; t; $ a Libs.private: -lstdc++' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+
+
+    echo 'char __libc_single_threaded = 0;' | ${CC} -x c -c - -o "$FFBUILD_DESTPREFIX"/lib/libc_single_threaded_stub.o
+#sed -i 's|Libs.private:|Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib -Wl, -lstdc++ -lsycl -lze_loader -lsvml -lintlc -lirc -lur_loader -lz|; t; $ a Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib -Wl, -lstdc++ -lsycl -lsvml -lintlc -lirc -lur_loader -lz' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+#sed -i 's|Libs.private:|Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib:/lib64:/usr/lib64:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu -lstdc++ -lsycl -lze_loader -lsvml -lintlc -lirc -lur_loader -lz|; t; $ a Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib:/lib64:/usr/lib64:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu -lstdc++ -lsycl -lze_loader -lsvml -lintlc -lirc -lur_loader -lz' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+sed -i 's|Libs.private:.*|Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib -Wl,--allow-shlib-undefined -Wl,--defsym=__libc_single_threaded=0 -Wl,/usr/lib/x86_64-linux-gnu/libze_loader.so -lstdc++ -lsycl -lsvml -lintlc -lirc -lur_loader -lz|' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+#sed -i 's|Libs.private:.*|Libs.private: /opt/ffbuild/lib/libc_hack.o /opt/ffbuild/lib/libc_single_threaded_stub.o -L/opt/intel/oneapi/compiler/latest/lib -Wl,--allow-shlib-undefined -lstdc++ -lsycl /usr/lib/x86_64-linux-gnu/libze_loader.so -lsvml -lintlc -lirc -lur_loader -lz|' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+#sed -i 's|Libs.private:.*|Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib:/lib64:/usr/lib64:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu -lstdc++ -lsycl /usr/lib/x86_64-linux-gnu/libze_loader.so -lsvml -lintlc -lirc -lur_loader -lz|' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+#sed -i 's|Libs.private:.*|Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib:/lib64:/usr/lib64:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu -lstdc++ -lsycl /usr/lib/x86_64-linux-gnu/libze_loader.so -lsvml -lintlc -lirc -lur_loader -lz|' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+#sed -i 's|Libs.private:|Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -L/usr/lib/x86_64-linux-gnu -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib:/lib64:/usr/lib64:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu -lstdc++ -lsycl -lze_loader -lsvml -lintlc -lirc -lur_loader -lz|; t; $ a Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -L/usr/lib/x86_64-linux-gnu -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib:/lib64:/usr/lib64:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu -lstdc++ -lsycl -lze_loader -lsvml -lintlc -lirc -lur_loader -lz' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+#sed -i 's|Libs.private:|Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib -lstdc++ -lsycl -lze_loader -lsvml -lintlc -lirc -lur_loader -lz|; t; $ a Libs.private: /opt/ffbuild/lib/libc_hack.o -L/opt/intel/oneapi/compiler/latest/lib -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib -lstdc++ -lsycl -lsvml -lintlc -lirc -lur_loader -lz' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+#sed -i 's/Libs.private:/Libs.private: -lstdc++ -lsycl -lsvml -lintlc -lirc -lur_loader -lz/; t; $ a Libs.private: -lstdc++ -lsycl -lsvml -lintlc -lirc -lur_loader -lz' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+#sed -i 's/Libs.private:/Libs.private: -L\/opt\/intel\/oneapi\/compiler\/latest\/lib -L\/opt\/intel\/oneapi\/compiler\/2025.3\/lib -Wl,-rpath-link=\/opt\/intel\/oneapi\/compiler\/latest\/lib -lstdc++ -lsycl -lsvml -lintlc -lirc -lur_loader -lz/; t; $ a Libs.private: -L/opt/intel/oneapi/compiler/latest/lib -L/opt/intel/oneapi/compiler/2025.3/lib -Wl,-rpath-link=/opt/intel/oneapi/compiler/latest/lib -lstdc++ -lsycl -lsvml -lintlc -lirc -lur_loader -lz' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+#sed -i 's/Libs.private:/Libs.private: -L\/opt\/intel\/oneapi\/compiler\/latest\/lib -Wl,-rpath-link=\/opt\/intel\/oneapi\/compiler\/latest\/lib /' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
+#    sed -i 's/Libs.private:/Libs.private: -lstdc++/; t; $ a Libs.private: -lstdc++' "$FFBUILD_DESTPREFIX"/lib/pkgconfig/libvmaf.pc
 }
 
 ffbuild_configure() {

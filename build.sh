@@ -37,13 +37,13 @@ cat <<EOF >"$BUILD_SCRIPT"
 
     source /patches/nvcc.sh
 
-    git apply /patches/ffmpeg-libvmaf-vulkan.patch
-
+    git apply /patches/ffmpeg-libvmaf-sycl.patch
+export LDFLAGS="$LDFLAGS -Wl,--defsym=__libc_single_threaded=0 -Wl,--allow-shlib-undefined"
     ./configure --prefix=/ffbuild/prefix --pkg-config-flags="--static" \$FFBUILD_TARGET_FLAGS \$FF_CONFIGURE \
-        --extra-cflags="\$FF_CFLAGS" --extra-cxxflags="\$FF_CXXFLAGS" --extra-libs="\$FF_LIBS" \
-        --extra-ldflags="\$FF_LDFLAGS" --extra-ldexeflags="\$FF_LDEXEFLAGS" \
+        --extra-cflags="\$FF_CFLAGS" --extra-cxxflags="\$FF_CXXFLAGS" \
+        --extra-ldflags="\$FF_LDFLAGS -L/opt/ffbuild/lib -Wl,--defsym=__libc_single_threaded=0 -Wl,--allow-shlib-undefined" --extra-libs="\$FF_LIBS -lpthread -lfftw3 -lm -lstdc++ /usr/lib/x86_64-linux-gnu/libze_loader.so /usr/lib/x86_64-linux-gnu/libz.so" \
         --cc="\$CC" --cxx="\$CXX" --ar="\$AR" --ranlib="\$RANLIB" --nm="\$NM" \
-        --extra-version="BlackBeard" --enable-libvmaf-vulkan
+        --extra-version="BlackBeard" --enable-libvmaf-sycl
     make -j\$(nproc) V=1
     make install install-doc
 EOF

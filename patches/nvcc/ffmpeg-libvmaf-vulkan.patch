@@ -1,5 +1,5 @@
 diff --git a/configure b/configure
-index c931b86..b36f429 100755
+index 732de59..ab6d1f8 100755
 --- a/configure
 +++ b/configure
 @@ -290,6 +290,7 @@ External library support:
@@ -26,7 +26,7 @@ index c931b86..b36f429 100755
  zmq_filter_deps="libzmq"
  zoompan_filter_deps="swscale"
  zscale_filter_deps="libzimg const_nan"
-@@ -7167,6 +7170,8 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
+@@ -7163,6 +7166,8 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
  enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid.stab/libvidstab.h vsMotionDetectInit
  enabled libvmaf           && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvmaf.h vmaf_init
  enabled libvmaf           && check_pkg_config libvmaf_cuda "libvmaf >= 2.0.0" libvmaf_cuda.h vmaf_cuda_state_init
@@ -60,7 +60,7 @@ index cca4ce0..c03601f 100644
  extern const FFFilter ff_vf_limiter;
  extern const FFFilter ff_vf_loop;
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index 10d5b7f..1b1fdee 100644
+index 10d5b7f..1796b7e 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
 @@ -46,6 +46,15 @@
@@ -69,7 +69,7 @@ index 10d5b7f..1b1fdee 100644
  
 +#if CONFIG_LIBVMAF_VULKAN_FILTER
 +#include <inttypes.h>
-+#include <libvmaf/libvmaf_vulkan.h>
++#include <libvmaf_vulkan.h>
 +#include "libavutil/hwcontext.h"
 +#include "libavutil/hwcontext_vulkan.h"
 +#include "libavutil/vulkan_functions.h"
@@ -99,7 +99,7 @@ index 10d5b7f..1b1fdee 100644
  } LIBVMAFContext;
  
  #define OFFSET(x) offsetof(LIBVMAFContext, x)
-@@ -826,3 +848,436 @@ const FFFilter ff_vf_libvmaf_cuda = {
+@@ -826,3 +848,479 @@ const FFFilter ff_vf_libvmaf_cuda = {
      .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
  };
  #endif
@@ -288,7 +288,7 @@ index 10d5b7f..1b1fdee 100644
 +        return AVERROR_EXTERNAL;
 +    }
 +    // No fence needed — copy and compute share the same queue, so Vulkan
-+    // guarantees in-order execution.  The TRANSFER→COMPUTE memory barrier
++    // guarantees in-order execution.  The TRANSFER->COMPUTE memory barrier
 +    // in copy_cmd handles data visibility.  vmaf_vulkan_wait_compute() at
 +    // the start of the NEXT frame waits for batch_fence (signaled after
 +    // compute submit), which implicitly covers this earlier copy submit.
@@ -320,6 +320,37 @@ index 10d5b7f..1b1fdee 100644
 +{
 +    LIBVMAFContext *s = ctx->priv;
 +    FFVulkanFunctions *vk = &s->vkfn;
++    int err = 0;
++
++    ff_framesync_uninit(&s->fs);
++
++    if (!s->frame_cnt)
++        goto clean_up;
++
++    // Flush the Vulkan zero-copy pipeline (NOT vmaf_read_pictures which
++    // is only valid for the CPU / CUDA pre-allocated-picture paths)
++    err = vmaf_flush_vulkan(s->vmaf);
++    if (err)
++        av_log(ctx, AV_LOG_ERROR,
++               "vmaf_flush_vulkan failed: %d\n", err);
++
++    for (unsigned i = 0; i < s->model_cnt; i++) {
++        double vmaf_score;
++        err = vmaf_score_pooled(s->vmaf, s->model[i], pool_method_map(s->pool),
++                                &vmaf_score, 0, s->frame_cnt - 1);
++        if (err) {
++            av_log(ctx, AV_LOG_ERROR,
++                   "problem getting pooled vmaf score.\n");
++        }
++
++        av_log(ctx, AV_LOG_INFO, "VMAF score: %f\n", vmaf_score);
++    }
++
++    if (s->vmaf) {
++        if (s->log_path && !err)
++            vmaf_write_output(s->vmaf, s->log_path, log_fmt_map(s->log_fmt));
++    }
++
 +    if (s->gpu_profile && s->vk_state) {
 +        char *prof = vmaf_vulkan_profiling_get_string(s->vk_state);
 +        if (prof) {
@@ -327,13 +358,25 @@ index 10d5b7f..1b1fdee 100644
 +            free(prof);
 +        }
 +    }
++
++clean_up:
 +    if (s->vk_device && vk->DestroyCommandPool) {
 +        if (s->copy_pool) {
 +            vk->DestroyCommandPool(s->vk_device, s->copy_pool, NULL);
 +            s->copy_pool = VK_NULL_HANDLE;
 +        }
 +    }
-+    uninit(ctx);
++
++    if (s->model) {
++        for (unsigned i = 0; i < s->model_cnt; i++) {
++            if (s->model[i])
++                vmaf_model_destroy(s->model[i]);
++        }
++        av_free(s->model);
++    }
++
++    if (s->vmaf)
++        vmaf_close(s->vmaf);
 +}
 +
 +static int config_props_vulkan(AVFilterLink *outlink)

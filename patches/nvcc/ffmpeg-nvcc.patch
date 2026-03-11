@@ -16,7 +16,7 @@ index 747cbe6f40..78d6f6730d 100755
  
  if enabled cuda_nvcc; then
 -    nvccflags="$nvccflags -ptx"
-+    nvccflags="-std=c++11 -m64 --fatbin -gencode=arch=compute_120,code=compute_120 -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_80,code=compute_80 -gencode=arch=compute_75,code=sm_75 -ccbin=/usr/bin/gcc-12 -O3"
++    nvccflags="-std=c++11 -m64 --fatbin -gencode=arch=compute_120,code=compute_120 -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_80,code=compute_80 -gencode=arch=compute_75,code=sm_75 -ccbin=${CC} -O3"
  else
      nvccflags="$nvccflags -S -nocudalib -nocudainc --cuda-device-only -Wno-c++11-narrowing -include ${source_link}/compat/cuda/cuda_runtime.h"
      check_nvcc cuda_llvm
