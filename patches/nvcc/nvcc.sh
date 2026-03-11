@@ -103,7 +103,7 @@ if [[ "$TARGET" != "winarm64" && "$STAGENAME" == *vmaf ]]; then
         -Denable_cuda=true
         -Denable_nvcc=true
     )
-    if [[ "$TARGET" == "*arm64" ]]; then
+    if [[ "$TARGET" != "*arm64" ]]; then
         myconf+=(
             -Denable_sycl=true
         )
