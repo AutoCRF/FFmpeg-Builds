@@ -33,7 +33,9 @@ ffbuild_dockerbuild() {
     ninja -j"$(nproc)"
     DESTDIR="$FFBUILD_DESTDIR" ninja install
 
-    [ -f "$FFBUILD_DESTPREFIX"/lib/pkgconfig/ze_loader.pc ] && echo "Libs.private: -lstdc++" >> "$FFBUILD_DESTPREFIX"/lib/pkgconfig/ze_loader.pc
+if [ -f "$FFBUILD_DESTPREFIX"/lib/pkgconfig/ze_loader.pc ]; then
+    echo "Libs.private: -lstdc++" >> "$FFBUILD_DESTPREFIX"/lib/pkgconfig/ze_loader.pc
+fi
 
 }
 
