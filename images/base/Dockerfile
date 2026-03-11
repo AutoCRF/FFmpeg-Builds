@@ -33,8 +33,6 @@ RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path && \
 RUN --mount=src=.,dst=/input \
     for s in /input/*.sh; do cp $s /usr/bin/$(echo $s | sed -e 's|.*/||' -e 's/\.sh$//'); done
 
-# (Optional) Source the setvars.sh script automatically
-#RUN echo "source /opt/intel/oneapi/setvars.sh" >> /root/.bashrc
 ENV HOST_CC="gcc" \
     HOST_CXX="g++" \
     HOST_CFLAGS="-O2 -pipe" \
