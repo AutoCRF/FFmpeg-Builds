@@ -6,6 +6,7 @@ SCRIPT_COMMIT="v1.18.0"
 ffbuild_enabled() {
     # Other oneAPI/Vulkan libs disable 32-bit targets
     [[ $TARGET != *32 ]] || return -1
+    [[ $TARGET == *arm64 ]] && return -1
     return 0
 }
 
@@ -33,9 +34,8 @@ ffbuild_dockerbuild() {
     ninja -j"$(nproc)"
     DESTDIR="$FFBUILD_DESTDIR" ninja install
 
-if [ -f "$FFBUILD_DESTPREFIX"/lib/pkgconfig/ze_loader.pc ]; then
-    echo "Libs.private: -lstdc++" >> "$FFBUILD_DESTPREFIX"/lib/pkgconfig/ze_loader.pc
-fi
+    if [ -f "$FFBUILD_DESTPREFIX"/lib/pkgconfig/ze_loader.pc ]; then
+        echo "Libs.private: -lstdc++" >>"$FFBUILD_DESTPREFIX"/lib/pkgconfig/ze_loader.pc
+    fi
 
 }
-

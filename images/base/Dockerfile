@@ -33,26 +33,6 @@ RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --no-modify-path && \
 RUN --mount=src=.,dst=/input \
     for s in /input/*.sh; do cp $s /usr/bin/$(echo $s | sed -e 's|.*/||' -e 's/\.sh$//'); done
 
-# Install prerequisites
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates gnupg2 lsb-release \
-    && rm -rf /var/lib/apt/lists/*
-
-# Add Intel oneAPI repository
-RUN curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | tee /usr/share/keyrings/intel-oneapi-archive-keyring.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/intel-oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | tee /etc/apt/sources.list.d/oneAPI.list
-
-# # Update repository and install the Intel(R) oneAPI DPC++/C++ Compiler
-RUN apt-get update && apt-get install -y --no-install-recommends \
- intel-oneapi-compiler-dpcpp-cpp \
-     && rm -rf /var/lib/apt/lists/*
-
-# Set up environment variables for oneAPI
-# By default, tools are installed in /opt/intel/oneapi
-#ENV PATH="/opt/intel/oneapi/compiler/latest/linux/bin:$PATH"
-#ENV LD_LIBRARY_PATH="/opt/intel/oneapi/compiler/latest/linux/lib"
-#:$LD_LIBRARY_PATH"
-
 # (Optional) Source the setvars.sh script automatically
 #RUN echo "source /opt/intel/oneapi/setvars.sh" >> /root/.bashrc
 ENV HOST_CC="gcc" \

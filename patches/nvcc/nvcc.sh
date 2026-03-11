@@ -64,7 +64,6 @@ echo "------------------------------------------------"
 # Optional: cleanup installer
 # rm "$INSTALLER_NAME"
 
-
 if [[ "$VARIANT" == *legacy ]]; then
     NV_ARCH=$(uname -m | grep -q "x86" && echo "x86_64" || echo "aarch64")
     NV_VER="12.9.1"
@@ -83,6 +82,7 @@ else
     /patches/nvidia.py --label "${NV_VER}" --product cuda --output "/tmp/cuda-${NV_VER}" --os linux --arch "${NV_ARCH}" --component libnvvm
     patch -p1 math_functions.h -d "/tmp/cuda-${NV_VER}/linux-${NV_ARCH}/include/crt" </patches/glibc.patch
 fi
+
 export SYCL_PROGRAM_COMPILE_OPTION="${SYCL_PROGRAM_COMPILE_OPTIONS} -fcp-host-compiler=${CC}"
 export NVCC_APPEND_FLAGS="-ccbin=${CC}"
 export NVCC_PREPEND_FLAGS="-I/opt/ffbuild/include"
@@ -99,7 +99,15 @@ if [[ "$TARGET" != "winarm64" && "$STAGENAME" == *vmaf ]]; then
     sed -i '/^\[binaries\]/a cuda = '"'nvcc'"'' /cross.meson
     myconf+=(
         --cross-file=/cross.meson
+        -Denable_asm=true
+        -Denable_cuda=true
+        -Denable_nvcc=true
     )
+    if [[ "$TARGET" == "*arm64" ]]; then
+        myconf+=(
+            -Denable_sycl=true
+        )
+    fi
 
     if [[ "$VARIANT" == *legacy ]]; then
         git apply --directory=.. /patches/vmaf-nvcc-legacy.patch
