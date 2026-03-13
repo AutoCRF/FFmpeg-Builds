@@ -104,11 +104,11 @@ if [[ "$TARGET" != "winarm64" && "$STAGENAME" == *vmaf ]]; then
         -Denable_cuda=true
         -Denable_nvcc=true
     )
-    if [[ "$TARGET" != "*arm64" ]]; then
-        myconf+=(
-            -Denable_sycl=true
-        )
-    fi
+    # if [[ "$TARGET" == "*arm64" ]]; then
+    #     myconf+=(
+    #         -Denable_sycl=true
+    #     )
+    # fi
 
     if [[ "$VARIANT" == *legacy ]]; then
         git apply --directory=.. /patches/vmaf-nvcc-legacy.patch
