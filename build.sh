@@ -41,7 +41,7 @@ cat <<EOF >"$BUILD_SCRIPT"
 export LDFLAGS="$LDFLAGS -Wl,--defsym=__libc_single_threaded=0 -Wl,--allow-shlib-undefined"
     ./configure --prefix=/ffbuild/prefix --pkg-config-flags="--static" \$FFBUILD_TARGET_FLAGS \$FF_CONFIGURE \
         --extra-cflags="\$FF_CFLAGS" --extra-cxxflags="\$FF_CXXFLAGS" \
-        --extra-ldflags="\$FF_LDFLAGS -L/opt/ffbuild/lib -Wl,--defsym=__libc_single_threaded=0 -Wl,--allow-shlib-undefined" --extra-libs="\$FF_LIBS -lpthread -lfftw3 -lm -lstdc++ /usr/lib/x86_64-linux-gnu/libze_loader.so /usr/lib/x86_64-linux-gnu/libz.so" \
+        --extra-ldflags="\$FF_LDFLAGS -L/opt/ffbuild/lib -Wl,--defsym=__libc_single_threaded=0 -Wl,--allow-shlib-undefined" --extra-libs="\$FF_LIBS" \
         --cc="\$CC" --cxx="\$CXX" --ar="\$AR" --ranlib="\$RANLIB" --nm="\$NM" \
         --extra-version="BlackBeard" --enable-libvmaf-sycl
     make -j\$(nproc) V=1

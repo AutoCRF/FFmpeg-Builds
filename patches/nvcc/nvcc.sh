@@ -86,6 +86,7 @@ fi
 export SYCL_PROGRAM_COMPILE_OPTION="${SYCL_PROGRAM_COMPILE_OPTIONS} -fcp-host-compiler=${CC}"
 export NVCC_APPEND_FLAGS="-ccbin=${CC}"
 export NVCC_PREPEND_FLAGS="-I/opt/ffbuild/include"
+export __INTEL_PRE_CFLAGS="-I/opt/ffbuild/include"
 export CUDA_PATH="/tmp/cuda-${NV_VER}/linux-${NV_ARCH}"
 export CUDA_HOME="/tmp/cuda-${NV_VER}/linux-${NV_ARCH}"
 export PATH="${PATH}:/tmp/cuda-${NV_VER}/linux-${NV_ARCH}/bin"
