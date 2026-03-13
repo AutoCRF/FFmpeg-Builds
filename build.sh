@@ -43,7 +43,7 @@ export LDFLAGS="$LDFLAGS -Wl,--defsym=__libc_single_threaded=0 -Wl,--allow-shlib
         --extra-cflags="\$FF_CFLAGS" --extra-cxxflags="\$FF_CXXFLAGS" \
         --extra-ldflags="\$FF_LDFLAGS -L/opt/ffbuild/lib -Wl,--defsym=__libc_single_threaded=0 -Wl,--allow-shlib-undefined" --extra-libs="\$FF_LIBS" \
         --cc="\$CC" --cxx="\$CXX" --ar="\$AR" --ranlib="\$RANLIB" --nm="\$NM" \
-        --extra-version="BlackBeard" --enable-libvmaf-sycl
+        --extra-version="BlackBeard"
     make -j\$(nproc) V=1
     make install install-doc
 EOF

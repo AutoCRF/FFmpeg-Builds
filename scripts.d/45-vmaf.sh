@@ -77,6 +77,9 @@ ffbuild_dockerbuild() {
 
 ffbuild_configure() {
     (($(ffbuild_ffver) >= 501)) || return 0
+    # if [[ "$TARGET" == "*arm64" ]]; then
+    # echo --enable-libvmaf-sycl
+    # fi
     echo --enable-libvmaf
 }
 
