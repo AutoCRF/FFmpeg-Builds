@@ -3,17 +3,17 @@ name: Build FFmpeg
 on:
   push:
     paths-ignore:
-      - '**.md'
-      - 'LICENSE'
+      - "**.md"
+      - "LICENSE"
   workflow_dispatch:
     inputs:
       doRelease:
-        description: 'Publish new release'
+        description: "Publish new release"
         type: boolean
         default: true
         required: false
       buildOnly:
-        description: 'Only build ffmpeg'
+        description: "Only build ffmpeg"
         type: boolean
         default: false
         required: false
@@ -52,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest,ubuntu-24.04-arm]
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Free Disk-Space
@@ -133,7 +133,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [win64,winarm64,linux64,linuxarm64]
+        target: [win64, winarm64, linux64, linuxarm64]
     steps:
       - name: Free Disk-Space
         run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
@@ -189,8 +189,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [win64,winarm64,linux64,linuxarm64]
-        variant: [nvcc-legacy 8.0, nvcc 8.0]
+        target: [win64, winarm64, linux64, linuxarm64]
+        variant: [nvcc-legacy 8.0, nvcc 8.0, gpl 8.0 debug]
     steps:
       - name: Free Disk-Space
         run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
@@ -255,8 +255,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [win64,winarm64,linux64,linuxarm64]
-        variant: [nvcc-legacy 8.0,nvcc 8.0]
+        target: [win64, winarm64, linux64, linuxarm64]
+        variant: [nvcc-legacy 8.0, nvcc 8.0, gpl 8.0 debug]
     steps:
       - name: Free Disk-Space
         run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
